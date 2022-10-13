@@ -56,6 +56,23 @@ struct midpoint_t {
 };
 
 
+using spacing_t = std::vector<double>;
+
+template <typename T>
+using iterator_t = decltype(std::begin(std::declval<T&>()));
+
+
+template <class ForwardIt>
+void linear_spacing_n(ForwardIt first, size_t count, double _a, double _b, bool endpoint) {
+    assert(1 < count && _a != _b);
+    const auto dx = (_b - _a) / static_cast<double>(count - (endpoint ? 1 : 0));
+
+    for (size_t i = 0; i < count; ++i, ++first) {
+        *first = _a + i * dx;
+    }
+};
+
+
 struct Area : protected std::array<double, 4> {
     Area(double _N, double _W, double _S, double _E) : std::array<double, 4>{_N, _W, _S, _E} { check(); }
 
@@ -75,8 +92,6 @@ struct Area : protected std::array<double, 4> {
         check();
     }
 
-    Area() : Area(90., 0., -90., 360.) {}
-
     void check() const {
         assert(-90. <= S() && S() <= N() && N() <= 90.);
         assert(W() <= E() && E() <= W() + 360.);
@@ -90,16 +105,18 @@ struct Area : protected std::array<double, 4> {
 
 
 struct Grid {
-    size_t Nj() const { return NN_.size(); }
-    size_t Ni(size_t j) const { return NN_[j]; }
-
     static Grid* build(const std::string& name, const Area&);
+
+    size_t Nj() const { return Nn_.size(); }
+    size_t Ni(size_t j) const { return Nn_[j]; }
+    const Area& area() const { return area_; }
 
 protected:
     Grid(const Area& area) : area_(area) {}
 
-    Area area_;
-    std::vector<size_t> NN_;
+    const Area area_;
+    std::vector<size_t> Nn_;
+    std::vector<double> Xj_;
 };
 
 
@@ -107,11 +124,20 @@ struct OGrid : Grid {
     OGrid(size_t N, const Area& area) : Grid(area) {
         assert(N > 0);
 
-        NN_.resize(2 * N);
-        auto a = NN_.begin();
-        auto b = NN_.rbegin();
-        for (size_t i = 0; i < N; ++i) {
-            *(a++) = *(b++) = 20 + i * 4;
+        Nn_.resize(2 * N);
+        auto Na = Nn_.begin();
+        auto Nb = Nn_.rbegin();
+        for (size_t i = 0; i < N; ++i, ++Na, ++Nb) {
+            *Na = *Nb = 20 + i * 4;
+        }
+
+        Xj_.resize(2 * N);
+        auto Xa = Xj_.begin();
+        auto Xb = Xj_.rbegin();
+        auto dx = 90. / static_cast<double>(N);
+        for (size_t i = 0; i < N; ++i, ++Xa, ++Xb) {
+            *Xa = 90. - dx * (i + 0.5);  // just an approximation
+            *Xb = -*Xa;
         }
     }
 };
@@ -120,7 +146,16 @@ struct OGrid : Grid {
 struct FGrid : Grid {
     FGrid(size_t N, const Area& area) : Grid(area) {
         assert(N > 0);
-        NN_.assign(2 * N, 4 * N);
+        Nn_.assign(2 * N, 4 * N);
+
+        Xj_.resize(2 * N);
+        auto Xa = Xj_.begin();
+        auto Xb = Xj_.rbegin();
+        auto dx = 90. / static_cast<double>(N);
+        for (size_t i = 0; i < N; ++i, ++Xa, ++Xb) {
+            *Xa = 90. - dx * (i + 0.5);  // just an approximation
+            *Xb = -*Xa;
+        }
     }
 };
 
@@ -128,7 +163,10 @@ struct FGrid : Grid {
 struct LLGrid : Grid {
     LLGrid(size_t Ni, size_t Nj, const Area& area) : Grid(area) {
         assert(Ni > 0 && Nj > 0);
-        NN_.assign(Ni, Nj);
+        Nn_.assign(Ni, Nj);
+
+        Xj_.resize(Nj);
+        linear_spacing_n(Xj_.begin(), Nj, area.N(), area.S(), true);
     }
 };
 
@@ -169,7 +207,7 @@ int main(int argc, const char* argv[]) {
 
         const std::string globe = "90/0/-90/360";
         parser->add_options()("h,help", "Print help");
-        parser->add_options()("input-grid", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
+        parser->add_options()("input-grid", "Input grid", cxxopts::value<std::string>()->default_value("LL3x3"));
         parser->add_options()("input-area", "Input area", cxxopts::value<std::string>()->default_value(globe));
         parser->add_options()("output-grid", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
         parser->add_options()("output-area", "Output area", cxxopts::value<std::string>()->default_value(globe));
