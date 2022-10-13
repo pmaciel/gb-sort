@@ -97,6 +97,10 @@ struct Area : protected std::array<double, 4> {
         assert(W() <= E() && E() <= W() + 360.);
     }
 
+    bool operator==(const Area& other) const {
+        return N() == other.N() && W() == other.W() && S() == other.S() && E() == other.E();
+    }
+
     double N() const { return operator[](0); }
     double W() const { return operator[](1); }
     double S() const { return operator[](2); }
@@ -104,18 +108,22 @@ struct Area : protected std::array<double, 4> {
 };
 
 
+static const std::string GLOBE_STR = "90/0/-90/360";
+static const Area GLOBE(GLOBE_STR);
+
+
 struct Grid {
     static Grid* build(const std::string& name, const Area&);
 
-    size_t Nj() const { return Nn_.size(); }
-    size_t Ni(size_t j) const { return Nn_[j]; }
+    size_t Nj() const { return N_.size(); }
+    size_t Ni(size_t j) const { return N_[j]; }
     const Area& area() const { return area_; }
 
 protected:
     Grid(const Area& area) : area_(area) {}
 
     const Area area_;
-    std::vector<size_t> Nn_;
+    std::vector<size_t> N_;
     std::vector<double> Xj_;
 };
 
@@ -124,9 +132,9 @@ struct OGrid : Grid {
     OGrid(size_t N, const Area& area) : Grid(area) {
         assert(N > 0);
 
-        Nn_.resize(2 * N);
-        auto Na = Nn_.begin();
-        auto Nb = Nn_.rbegin();
+        N_.resize(2 * N);
+        auto Na = N_.begin();
+        auto Nb = N_.rbegin();
         for (size_t i = 0; i < N; ++i, ++Na, ++Nb) {
             *Na = *Nb = 20 + i * 4;
         }
@@ -146,7 +154,7 @@ struct OGrid : Grid {
 struct FGrid : Grid {
     FGrid(size_t N, const Area& area) : Grid(area) {
         assert(N > 0);
-        Nn_.assign(2 * N, 4 * N);
+        N_.assign(2 * N, 4 * N);
 
         Xj_.resize(2 * N);
         auto Xa = Xj_.begin();
@@ -163,7 +171,7 @@ struct FGrid : Grid {
 struct LLGrid : Grid {
     LLGrid(size_t Ni, size_t Nj, const Area& area) : Grid(area) {
         assert(Ni > 0 && Nj > 0);
-        Nn_.assign(Ni, Nj);
+        N_.assign(Ni, Nj);
 
         Xj_.resize(Nj);
         linear_spacing_n(Xj_.begin(), Nj, area.N(), area.S(), true);
@@ -179,11 +187,13 @@ Grid* Grid::build(const std::string& name, const Area& area) {
     std::smatch match;  // Note: first sub_match is the whole string
     if (std::regex_match(name, match, octahedral)) {
         assert(match.size() == 2);
+        assert(area == GLOBE);  // Note: for simplicity
         return new OGrid(static_cast<size_t>(std::stol(match[1].str())), area);
     }
 
     if (std::regex_match(name, match, regular_gg)) {
         assert(match.size() == 2);
+        assert(area == GLOBE);  // Note: for simplicity
         return new FGrid(static_cast<size_t>(std::stol(match[1].str())), area);
     }
 
@@ -205,12 +215,11 @@ int main(int argc, const char* argv[]) {
             new cxxopts::Options(argv[0], " - grid-box intersections interpolation method"));
 
 
-        const std::string globe = "90/0/-90/360";
         parser->add_options()("h,help", "Print help");
-        parser->add_options()("input-grid", "Input grid", cxxopts::value<std::string>()->default_value("LL3x3"));
-        parser->add_options()("input-area", "Input area", cxxopts::value<std::string>()->default_value(globe));
+        parser->add_options()("input-grid", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
+        parser->add_options()("input-area", "Input area", cxxopts::value<std::string>()->default_value(GLOBE_STR));
         parser->add_options()("output-grid", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
-        parser->add_options()("output-area", "Output area", cxxopts::value<std::string>()->default_value(globe));
+        parser->add_options()("output-area", "Output area", cxxopts::value<std::string>()->default_value(GLOBE_STR));
 
         parser->parse_positional({"input-grid", "output-grid"});
 
