@@ -21,14 +21,10 @@
  */
 
 #include <algorithm>
-#include <array>
 #include <iostream>
 #include <iterator>
-#include <vector>
-
-
-#include <iostream>
 #include <memory>
+#include <vector>
 
 #include "cxxopts.hpp"
 
@@ -40,22 +36,10 @@ void print(const T& v) {
 }
 
 
-std::ostream& operator<<(std::ostream& out, const std::array<int, 2>& a) {
-    out << a[0] << "/" << a[1];
-    return out;
-}
-
-
 struct midpoint_t {
-    midpoint_t(double _point, int _type, int _index = 0) : point(_point), meta({_type, _index}) {}
+    midpoint_t(double _point, int _meta = 0) : point(_point), meta(_meta) {}
     double point;
-    std::array<int, 2> meta;
-
-    const decltype(meta)::value_type& type() const { return meta[0]; }
-    const decltype(meta)::value_type& index() const { return meta[1]; }
-
-    decltype(meta)::value_type& type() { return meta[0]; }
-    decltype(meta)::value_type& index() { return meta[1]; }
+    int meta;
 
     bool operator<(const midpoint_t& m) const { return point < m.point || (point == m.point && meta < m.meta); }
     friend std::ostream& operator<<(std::ostream& out, const midpoint_t& m) {
@@ -67,6 +51,7 @@ struct midpoint_t {
 
 int main(int argc, const char* argv[]) {
     try {
+        // options
         std::unique_ptr<cxxopts::Options> parser(
             new cxxopts::Options(argv[0], " - grid-box intersections interpolation method"));
 
@@ -83,26 +68,28 @@ int main(int argc, const char* argv[]) {
             return 0;
         }
 
-        std::cout << options["input"].as<std::string>() << std::endl;
-        std::cout << options["output"].as<std::string>() << std::endl;
+        auto input  = options["input"].as<std::string>();
+        auto output = options["output"].as<std::string>();
 
 
-        // std::vector<midpoint_t> m;
-        // for (double i : {1.1, 1.2}) {
-        //     for (int j : {3, 1}) {
-        //         m.emplace_back(midpoint_t{i, j});
-        //     }
-        // }
+        // build test data to sort
 
-        // print(m);
-        // std::sort(m.begin(), m.end());
-        // print(m);
+        std::vector<midpoint_t> m;
+        for (double i : {1.1, 1.2}) {
+            for (int j : {3, 1}) {
+                m.emplace_back(midpoint_t{i, j});
+            }
+        }
 
-        // std::vector<double> v = {1, 3, 5, 2, 4, 6};
-        // print(v);
+        print(m);
+        std::sort(m.begin(), m.end());
+        print(m);
 
-        // std::inplace_merge(v.begin(), v.begin() + 3, v.end());
-        // print(v);
+        std::vector<double> v = {1, 3, 5, 2, 4, 6};
+        print(v);
+
+        std::inplace_merge(v.begin(), v.begin() + 3, v.end());
+        print(v);
     }
     catch (const cxxopts::exceptions::exception& e) {
         std::cout << "error parsing options: " << e.what() << std::endl;
