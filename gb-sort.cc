@@ -26,6 +26,13 @@
 #include <iterator>
 #include <vector>
 
+
+#include <iostream>
+#include <memory>
+
+#include "cxxopts.hpp"
+
+
 template <class T>
 void print(const T& v) {
     std::copy(v.begin(), v.end(), std::ostream_iterator<typename T::value_type>(std::cout, " "));
@@ -58,21 +65,49 @@ struct midpoint_t {
 };
 
 
-int main() {
-    std::vector<midpoint_t> m;
-    for (double i : {1.1, 1.2}) {
-        for (int j : {3, 1}) {
-            m.emplace_back(midpoint_t{i, j});
+int main(int argc, const char* argv[]) {
+    try {
+        std::unique_ptr<cxxopts::Options> parser(
+            new cxxopts::Options(argv[0], " - grid-box intersections interpolation method"));
+
+        parser->add_options()("help", "Print help");
+        parser->add_options()("i,input", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
+        parser->add_options()("o,output", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
+
+        parser->parse_positional({"input", "output"});
+
+        auto options = parser->parse(argc, argv);
+
+        if (options.count("help")) {
+            std::cout << parser->help() << std::endl;
+            return 0;
         }
+
+        std::cout << options["input"].as<std::string>() << std::endl;
+        std::cout << options["output"].as<std::string>() << std::endl;
+
+
+        // std::vector<midpoint_t> m;
+        // for (double i : {1.1, 1.2}) {
+        //     for (int j : {3, 1}) {
+        //         m.emplace_back(midpoint_t{i, j});
+        //     }
+        // }
+
+        // print(m);
+        // std::sort(m.begin(), m.end());
+        // print(m);
+
+        // std::vector<double> v = {1, 3, 5, 2, 4, 6};
+        // print(v);
+
+        // std::inplace_merge(v.begin(), v.begin() + 3, v.end());
+        // print(v);
+    }
+    catch (const cxxopts::exceptions::exception& e) {
+        std::cout << "error parsing options: " << e.what() << std::endl;
+        return 1;
     }
 
-    print(m);
-    std::sort(m.begin(), m.end());
-    print(m);
-
-    std::vector<double> v = {1, 3, 5, 2, 4, 6};
-    print(v);
-
-    std::inplace_merge(v.begin(), v.begin() + 3, v.end());
-    print(v);
+    return 0;
 }
