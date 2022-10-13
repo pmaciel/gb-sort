@@ -56,82 +56,104 @@ struct midpoint_t {
 };
 
 
-#if 0
-struct Area : std::array<double, 4> {
-    Area(double _N, double _W, double _S, double _E) : std::array<double, 4>{_N, _W, _S, _E} {
+struct Area : protected std::array<double, 4> {
+    Area(double _N, double _W, double _S, double _E) : std::array<double, 4>{_N, _W, _S, _E} { check(); }
+
+    Area(const std::string& NWSE) {
+        const static std::string x = "([+-]?([0-9]+([.][0-9]*)?|[.][0-9]+))";
+        const static std::regex NWSEx(x + "/" + x + "/" + x + "/" + x);
+
+        std::smatch match;  // Note: first sub_match is the whole string
+        assert(std::regex_match(NWSE, match, NWSEx));
+        assert(match.size() == 13);
+
+        operator[](0) = std::stod(match[1].str());
+        operator[](1) = std::stod(match[4].str());
+        operator[](2) = std::stod(match[7].str());
+        operator[](3) = std::stod(match[10].str());
+
+        check();
+    }
+
+    Area() : Area(90., 0., -90., 360.) {}
+
+    void check() const {
         assert(-90. <= S() && S() <= N() && N() <= 90.);
         assert(W() <= E() && E() <= W() + 360.);
     }
-    Area() : Area(90., 0., -90., 360.) {}
+
     double N() const { return operator[](0); }
     double W() const { return operator[](1); }
     double S() const { return operator[](2); }
     double E() const { return operator[](3); }
 };
-#endif
 
 
 struct Grid {
-    size_t Nj() const { return Nj_; }
-    size_t Ni(size_t j) const { return Ni_[j]; }
+    size_t Nj() const { return NN_.size(); }
+    size_t Ni(size_t j) const { return NN_[j]; }
 
-    static Grid* build(const std::string& name);
+    static Grid* build(const std::string& name, const Area&);
 
 protected:
-    Grid(std::vector<size_t>&& Ni) : Nj_(Ni.size()), Ni_(Ni) {}
+    Grid(const Area& area) : area_(area) {}
 
-    std::vector<size_t> Ni_;
-    size_t Nj_;
+    Area area_;
+    std::vector<size_t> NN_;
 };
 
 
-struct ReducedGrid : Grid {
-    ReducedGrid(std::vector<size_t>&& Ni) : Grid(std::move(Ni)) {}
-};
-
-
-struct RegularGrid : Grid {
-    RegularGrid(size_t Ni, size_t Nj) : Grid(std::vector<size_t>(Nj, Ni)) {}
-};
-
-
-Grid* Grid::build(const std::string& name) {
-    std::smatch match;  // Note: first sub_match is the whole string
-
-    const static std::regex octahedral("[Oo]([1-9][0-9]*)");
-    const static std::regex regular_gg("[Ff]([1-9][0-9]*)");
-    const static std::regex regular_ll("[L]([1-9][0-9]*)x([1-9][0-9]*)");
-
-    if (std::regex_match(name, match, octahedral)) {
-        assert(match.size() == 2);
-        auto N = static_cast<size_t>(std::stol(match[1].str()));
+struct OGrid : Grid {
+    OGrid(size_t N, const Area& area) : Grid(area) {
         assert(N > 0);
 
-        std::vector<size_t> Ni(2 * N);
-        auto a = Ni.begin();
-        auto b = Ni.rbegin();
+        NN_.resize(2 * N);
+        auto a = NN_.begin();
+        auto b = NN_.rbegin();
         for (size_t i = 0; i < N; ++i) {
             *(a++) = *(b++) = 20 + i * 4;
         }
+    }
+};
 
-        return new ReducedGrid(std::move(Ni));
+
+struct FGrid : Grid {
+    FGrid(size_t N, const Area& area) : Grid(area) {
+        assert(N > 0);
+        NN_.assign(2 * N, 4 * N);
+    }
+};
+
+
+struct LLGrid : Grid {
+    LLGrid(size_t Ni, size_t Nj, const Area& area) : Grid(area) {
+        assert(Ni > 0 && Nj > 0);
+        NN_.assign(Ni, Nj);
+    }
+};
+
+
+Grid* Grid::build(const std::string& name, const Area& area) {
+    const static std::regex octahedral("[Oo]([1-9][0-9]*)");
+    const static std::regex regular_gg("[Ff]([1-9][0-9]*)");
+    const static std::regex regular_ll("LL([1-9][0-9]*)x([1-9][0-9]*)");
+
+    std::smatch match;  // Note: first sub_match is the whole string
+    if (std::regex_match(name, match, octahedral)) {
+        assert(match.size() == 2);
+        return new OGrid(static_cast<size_t>(std::stol(match[1].str())), area);
     }
 
     if (std::regex_match(name, match, regular_gg)) {
         assert(match.size() == 2);
-        auto N = static_cast<size_t>(std::stol(match[1].str()));
-        assert(N > 0);
-
-        return new RegularGrid(N * 4, N * 2);
+        return new FGrid(static_cast<size_t>(std::stol(match[1].str())), area);
     }
 
     if (std::regex_match(name, match, regular_ll)) {
         assert(match.size() == 3);
         auto Ni = static_cast<size_t>(std::stol(match[1].str()));
         auto Nj = static_cast<size_t>(std::stol(match[2].str()));
-        assert(Ni > 0 && Nj > 0);
-
-        return new RegularGrid(Ni, Nj);
+        return new LLGrid(Ni, Nj, area);
     }
 
     throw std::runtime_error("Unrecognized grid '" + name + "'");
@@ -144,15 +166,15 @@ int main(int argc, const char* argv[]) {
         std::unique_ptr<cxxopts::Options> parser(
             new cxxopts::Options(argv[0], " - grid-box intersections interpolation method"));
 
-        parser->add_options()("h,help", "Print help");
-        parser->add_options()("i,input", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
-        parser->add_options()("o,output", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
-        parser->add_options()("I,input-area", "Input grid area",
-                              cxxopts::value<std::string>()->default_value("90/0/-90/360"));
-        parser->add_options()("O,output-area", "Output grid area",
-                              cxxopts::value<std::string>()->default_value("90/0/-90/360"));
 
-        parser->parse_positional({"input", "output"});
+        const std::string globe = "90/0/-90/360";
+        parser->add_options()("h,help", "Print help");
+        parser->add_options()("input-grid", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
+        parser->add_options()("input-area", "Input area", cxxopts::value<std::string>()->default_value(globe));
+        parser->add_options()("output-grid", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
+        parser->add_options()("output-area", "Output area", cxxopts::value<std::string>()->default_value(globe));
+
+        parser->parse_positional({"input-grid", "output-grid"});
 
         auto options = parser->parse(argc, argv);
 
@@ -163,8 +185,11 @@ int main(int argc, const char* argv[]) {
 
         // build input and output grids
 
-        std::unique_ptr<Grid> Gi(Grid::build(options["input"].as<std::string>()));
-        std::unique_ptr<Grid> Go(Grid::build(options["output"].as<std::string>()));
+        auto Ai = options["input-area"].as<std::string>();
+        auto Ao = options["output-area"].as<std::string>();
+
+        std::unique_ptr<Grid> Gi(Grid::build(options["input-grid"].as<std::string>(), Area(Ai)));
+        std::unique_ptr<Grid> Go(Grid::build(options["output-grid"].as<std::string>(), Area(Ao)));
 
         // build test data to sort
 
