@@ -21,9 +21,15 @@
  */
 
 #include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstddef>
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <regex>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "cxxopts.hpp"
@@ -49,13 +55,88 @@ struct midpoint_t {
 };
 
 
+#if 0
+struct Area : std::array<double, 4> {
+    Area(double _N, double _W, double _S, double _E) : std::array<double, 4>{_N, _W, _S, _E} {
+        assert(-90. <= S() && S() <= N() && N() <= 90.);
+        assert(W() <= E() && E() <= W() + 360.);
+    }
+    Area() : Area(90., 0., -90., 360.) {}
+    double N() const { return operator[](0); }
+    double W() const { return operator[](1); }
+    double S() const { return operator[](2); }
+    double E() const { return operator[](3); }
+};
+#endif
+
+
+struct Grid {
+    size_t Nj() const { return Nj_; }
+    size_t Ni(size_t j) const { return Ni_[j]; }
+
+protected:
+    Grid(std::vector<size_t>&& Ni) : Nj_(Ni.size()), Ni_(Ni) {}
+
+private:
+    std::vector<size_t> Ni_;
+    size_t Nj_;
+};
+
+
+struct GridFactory {
+    static Grid* build(const std::string& name) {
+        const auto& factory = instance();
+        std::smatch match;  // Note: first sub_match is the whole string
+
+        const static std::regex octahedral("[Oo]([1-9][0-9]*)");
+        const static std::regex regular_gg("[Ff]([1-9][0-9]*)");
+        const static std::regex regular_ll("[L]([1-9][0-9]*)x([1-9][0-9]*)");
+
+        if (std::regex_match(name, match, octahedral)) {
+            assert(match.size() == 2);
+            auto Nj = static_cast<size_t>(std::stol(match[1].str()));
+            assert(Nj > 0);
+
+            return nullptr;
+        }
+
+        if (std::regex_match(name, match, regular_gg)) {
+            assert(match.size() == 2);
+            auto Nj = static_cast<size_t>(std::stol(match[1].str()));
+            assert(Nj > 0);
+
+            return nullptr;
+        }
+
+        if (std::regex_match(name, match, regular_ll)) {
+            assert(match.size() == 3);
+            auto Ni = static_cast<size_t>(std::stol(match[1].str()));
+            auto Nj = static_cast<size_t>(std::stol(match[2].str()));
+            assert(Ni > 0 && Nj > 0);
+
+            return nullptr;
+        }
+
+        throw std::runtime_error("unrecognized grid '" + name + "'");
+    }
+
+private:
+    GridFactory() = default;
+
+    static const GridFactory& instance() {
+        static GridFactory gf;
+        return gf;
+    }
+};
+
+
 int main(int argc, const char* argv[]) {
     try {
         // options
         std::unique_ptr<cxxopts::Options> parser(
             new cxxopts::Options(argv[0], " - grid-box intersections interpolation method"));
 
-        parser->add_options()("help", "Print help");
+        parser->add_options()("h,help", "Print help");
         parser->add_options()("i,input", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
         parser->add_options()("o,output", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
 
@@ -68,9 +149,10 @@ int main(int argc, const char* argv[]) {
             return 0;
         }
 
-        auto input  = options["input"].as<std::string>();
-        auto output = options["output"].as<std::string>();
+        // build input and output grids
 
+        std::unique_ptr<Grid> Gi(GridFactory::build(options["input"].as<std::string>()));
+        std::unique_ptr<Grid> Go(GridFactory::build(options["output"].as<std::string>()));
 
         // build test data to sort
 
