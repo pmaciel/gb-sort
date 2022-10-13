@@ -30,6 +30,7 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cxxopts.hpp"
@@ -74,60 +75,67 @@ struct Grid {
     size_t Nj() const { return Nj_; }
     size_t Ni(size_t j) const { return Ni_[j]; }
 
+    static Grid* build(const std::string& name);
+
 protected:
     Grid(std::vector<size_t>&& Ni) : Nj_(Ni.size()), Ni_(Ni) {}
 
-private:
     std::vector<size_t> Ni_;
     size_t Nj_;
 };
 
 
-struct GridFactory {
-    static Grid* build(const std::string& name) {
-        const auto& factory = instance();
-        std::smatch match;  // Note: first sub_match is the whole string
-
-        const static std::regex octahedral("[Oo]([1-9][0-9]*)");
-        const static std::regex regular_gg("[Ff]([1-9][0-9]*)");
-        const static std::regex regular_ll("[L]([1-9][0-9]*)x([1-9][0-9]*)");
-
-        if (std::regex_match(name, match, octahedral)) {
-            assert(match.size() == 2);
-            auto Nj = static_cast<size_t>(std::stol(match[1].str()));
-            assert(Nj > 0);
-
-            return nullptr;
-        }
-
-        if (std::regex_match(name, match, regular_gg)) {
-            assert(match.size() == 2);
-            auto Nj = static_cast<size_t>(std::stol(match[1].str()));
-            assert(Nj > 0);
-
-            return nullptr;
-        }
-
-        if (std::regex_match(name, match, regular_ll)) {
-            assert(match.size() == 3);
-            auto Ni = static_cast<size_t>(std::stol(match[1].str()));
-            auto Nj = static_cast<size_t>(std::stol(match[2].str()));
-            assert(Ni > 0 && Nj > 0);
-
-            return nullptr;
-        }
-
-        throw std::runtime_error("unrecognized grid '" + name + "'");
-    }
-
-private:
-    GridFactory() = default;
-
-    static const GridFactory& instance() {
-        static GridFactory gf;
-        return gf;
-    }
+struct ReducedGrid : Grid {
+    ReducedGrid(std::vector<size_t>&& Ni) : Grid(std::move(Ni)) {}
 };
+
+
+struct RegularGrid : Grid {
+    RegularGrid(size_t Ni, size_t Nj) : Grid(std::vector<size_t>(Nj, Ni)) {}
+};
+
+
+Grid* Grid::build(const std::string& name) {
+    std::smatch match;  // Note: first sub_match is the whole string
+
+    const static std::regex octahedral("[Oo]([1-9][0-9]*)");
+    const static std::regex regular_gg("[Ff]([1-9][0-9]*)");
+    const static std::regex regular_ll("[L]([1-9][0-9]*)x([1-9][0-9]*)");
+
+    if (std::regex_match(name, match, octahedral)) {
+        assert(match.size() == 2);
+        auto N = static_cast<size_t>(std::stol(match[1].str()));
+        assert(N > 0);
+
+        std::vector<size_t> Ni(2 * N);
+        auto a = Ni.begin();
+        auto b = Ni.rbegin();
+        for (size_t i = 0; i < N; ++i) {
+            *(a++) = *(b++) = 20 + i * 4;
+        }
+
+        return new ReducedGrid(std::move(Ni));
+    }
+
+    if (std::regex_match(name, match, regular_gg)) {
+        assert(match.size() == 2);
+        auto N = static_cast<size_t>(std::stol(match[1].str()));
+        assert(N > 0);
+
+        return new RegularGrid(N * 4, N * 2);
+    }
+
+    if (std::regex_match(name, match, regular_ll)) {
+        assert(match.size() == 3);
+        auto Ni = static_cast<size_t>(std::stol(match[1].str()));
+        auto Nj = static_cast<size_t>(std::stol(match[2].str()));
+        assert(Ni > 0 && Nj > 0);
+
+        return new RegularGrid(Ni, Nj);
+    }
+
+    throw std::runtime_error("Unrecognized grid '" + name + "'");
+}
 
 
 int main(int argc, const char* argv[]) {
@@ -139,6 +147,10 @@ int main(int argc, const char* argv[]) {
         parser->add_options()("h,help", "Print help");
         parser->add_options()("i,input", "Input grid", cxxopts::value<std::string>()->default_value("O12"));
         parser->add_options()("o,output", "Output grid", cxxopts::value<std::string>()->default_value("O6"));
+        parser->add_options()("I,input-area", "Input grid area",
+                              cxxopts::value<std::string>()->default_value("90/0/-90/360"));
+        parser->add_options()("O,output-area", "Output grid area",
+                              cxxopts::value<std::string>()->default_value("90/0/-90/360"));
 
         parser->parse_positional({"input", "output"});
 
@@ -151,8 +163,8 @@ int main(int argc, const char* argv[]) {
 
         // build input and output grids
 
-        std::unique_ptr<Grid> Gi(GridFactory::build(options["input"].as<std::string>()));
-        std::unique_ptr<Grid> Go(GridFactory::build(options["output"].as<std::string>()));
+        std::unique_ptr<Grid> Gi(Grid::build(options["input"].as<std::string>()));
+        std::unique_ptr<Grid> Go(Grid::build(options["output"].as<std::string>()));
 
         // build test data to sort
 
