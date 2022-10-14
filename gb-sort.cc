@@ -55,37 +55,27 @@ struct midpoint_t {
 };
 
 
-using spacing_t = std::vector<double>;
-
 template <typename T>
 using iterator_t = decltype(std::begin(std::declval<T&>()));
 
 
-template <class ForwardIt>
-void linear_spacing_n(ForwardIt first, size_t count, double _a, double _b, bool endpoint) {
-    assert(1 < count && _a != _b);
-    const auto dx = (_b - _a) / static_cast<double>(count - (endpoint ? 1 : 0));
+void fill_midpoints_n(iterator_t<std::vector<midpoint_t>>& first, size_t count, double x0, double x1, double lim0,
+                      double lim1, int label, bool endpoint) {
+    // Assumes constant increment between point coordinates
+    // Note: if endpoint, advances first by count + 1
+    assert(1 < count);
 
-    for (size_t i = 0; i < count; ++i, ++first) {
-        *first = _a + i * dx;
-    }
-};
+    const auto dx = (x1 - x0) / static_cast<double>(count - (endpoint ? 1 : 0));
+    x0 -= 0.5 * dx;
 
-
-void fill_midpoints(iterator_t<std::vector<midpoint_t>>& first, const std::vector<double>& points, double a, double b,
-                    int label) {
-    // Note: advances first by points.size() + 1
-    // Note: assumes constant increment between point coordinates
-    assert(1 < points.size());
-
-    const auto it = first;
-    const auto dx = (points[1] - points.front()) / 2.;
-    for (const auto& x : points) {
-        *first++ = {x - dx, label};
+    *first++ = {lim0, label};
+    for (size_t i = 1; i < count; ++i) {
+        *first++ = {x0 + i * dx, label};
     }
 
-    *it      = {a, label};
-    *first++ = {b, label};
+    if (endpoint) {
+        *first++ = {lim1, label};
+    }
 };
 
 
@@ -142,14 +132,8 @@ struct Grid {
     size_t Ni(size_t j) const { return N_[j]; }
     const Area& area() const { return area_; }
 
-    virtual std::vector<double> Xj() const = 0;
-
-    std::vector<double> Xi(size_t j) const {
-        auto N = Ni(j);
-        std::vector<double> x(N);
-        linear_spacing_n(x.begin(), N, area_.W(), area_.E(), !area_.isPeriodicWestEast());
-        return x;
-    }
+    virtual double firstXj() const = 0;
+    virtual double lastXj() const  = 0;
 
 protected:
     Grid(const Area& area) : area_(area) {}
@@ -163,21 +147,8 @@ struct GaussianGrid : Grid {
 protected:
     using Grid::Grid;
 
-    std::vector<double> Xj() const override {
-        auto N = Nj() / 2;
-        assert(0 < N && N * 2 == Nj());
-
-        std::vector<double> x(2 * N);
-        auto a  = x.begin();
-        auto b  = x.rbegin();
-        auto dx = 90. / static_cast<double>(N);
-        for (size_t i = 0; i < N; ++i, ++a, ++b) {
-            *a = 90. - dx * (i + 0.5);  // just an approximation
-            *b = -*a;
-        }
-
-        return x;
-    }
+    double firstXj() const override { return area_.N() - 90. / static_cast<double>(Nj()); }
+    double lastXj() const override { return area_.S() + 90. / static_cast<double>(Nj()); }
 };
 
 
@@ -211,11 +182,8 @@ struct LLGrid : Grid {
         N_.assign(Ni, Nj);
     }
 
-    std::vector<double> Xj() const override {
-        std::vector<double> x(Nj());
-        linear_spacing_n(x.begin(), Nj(), area_.N(), area_.S(), true);
-        return x;
-    }
+    double firstXj() const override { return area_.N(); }
+    double lastXj() const override { return area_.S(); }
 };
 
 
@@ -271,26 +239,26 @@ int main(int argc, const char* argv[]) {
 
         // input and output grids
 
-        auto Ain  = options["input-area"].as<std::string>();
-        auto Aout = options["output-area"].as<std::string>();
-
-        std::unique_ptr<Grid> Gin(Grid::build(options["input-grid"].as<std::string>(), Area(Ain)));
-        std::unique_ptr<Grid> Gout(Grid::build(options["output-grid"].as<std::string>(), Area(Aout)));
+        std::unique_ptr<Grid> Gi(
+            Grid::build(options["input-grid"].as<std::string>(), {options["input-area"].as<std::string>()}));
+        std::unique_ptr<Grid> Go(
+            Grid::build(options["output-grid"].as<std::string>(), {options["output-area"].as<std::string>()}));
 
 
         // Grid-box latitude edges (j-direction midpoints)
-        std::vector<midpoint_t> Mj(Gin->Nj() + 1 + Gout->Nj() + 1);
+        std::vector<midpoint_t> Mj(Gi->Nj() + 1 + Go->Nj() + 1);
 
         auto it = Mj.begin();
-        fill_midpoints(it, Gin->Xj(), Gin->area().N(), Gin->area().S(), 0);
-        fill_midpoints(it, Gout->Xj(), Gout->area().N(), Gout->area().S(), 1);
+        fill_midpoints_n(it, Gi->Nj(), Gi->firstXj(), Gi->lastXj(), Gi->area().N(), Gi->area().S(), 0, true);
+        fill_midpoints_n(it, Go->Nj(), Go->firstXj(), Go->lastXj(), Go->area().N(), Go->area().S(), 1, true);
         assert(it == Mj.end());
 
         print(Mj);
         std::cout << "---" << std::endl;
 
+        // latitudes: reverse sort
         std::inplace_merge(
-            Mj.begin(), Mj.begin() + Gin->Nj() + 1, Mj.end(),
+            Mj.begin(), Mj.begin() + Gi->Nj() + 1, Mj.end(),
             [](const midpoint_t& a, const midpoint_t& b) { return a.x > b.x || (a.x == b.x && a.i < b.i); });
 
         print(Mj);
