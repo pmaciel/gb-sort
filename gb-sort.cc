@@ -155,21 +155,19 @@ static const Area GLOBE(GLOBE_STR);
 
 struct Grid {
     virtual ~Grid() = default;
+    const Area& area() const { return area_; }
 
     static Grid* build(const std::string& name, const Area&);
 
-    size_t Nj() const { return N_.size(); }
-    size_t Ni(size_t j) const { return N_[j]; }
-    const Area& area() const { return area_; }
-
-    virtual double firstXj() const = 0;
-    virtual double lastXj() const  = 0;
+    virtual size_t Nj() const         = 0;
+    virtual size_t Ni(size_t j) const = 0;
+    virtual double firstXj() const    = 0;
+    virtual double lastXj() const     = 0;
 
 protected:
     Grid(const Area& area) : area_(area) {}
 
     const Area area_;
-    std::vector<size_t> N_;
 };
 
 
@@ -177,8 +175,12 @@ struct GaussianGrid : Grid {
 protected:
     using Grid::Grid;
 
+    size_t Nj() const override { return N_.size(); }
+    size_t Ni(size_t j) const override { return N_[j]; }
     double firstXj() const override { return area_.N() - 90. / static_cast<double>(Nj()); }
     double lastXj() const override { return area_.S() + 90. / static_cast<double>(Nj()); }
+
+    std::vector<size_t> N_;
 };
 
 
@@ -207,13 +209,15 @@ struct FGrid : GaussianGrid {
 
 
 struct LLGrid : Grid {
-    LLGrid(size_t Ni, size_t Nj, const Area& area) : Grid(area) {
-        assert(Ni > 0 && Nj > 0);
-        N_.assign(Ni, Nj);
-    }
+    LLGrid(size_t Ni, size_t Nj, const Area& area) : Grid(area), Ni_(Ni), Nj_(Nj) { assert(Ni > 0 && Nj > 0); }
 
+    size_t Nj() const override { return Ni_; }
+    size_t Ni(size_t) const override { return Nj_; }
     double firstXj() const override { return area_.N(); }
     double lastXj() const override { return area_.S(); }
+
+    const size_t Ni_;
+    const size_t Nj_;
 };
 
 
