@@ -76,7 +76,18 @@ void fill_midpoints_n(iterator_t<std::vector<midpoint_t>>& first, size_t count, 
     if (endpoint) {
         *first++ = {lim1, label};
     }
-};
+}
+
+
+double normalise_longitude(double lon, double minimum) {
+    while (lon < minimum) {
+        lon += 360.;
+    }
+    while (lon >= minimum + 360.) {
+        lon -= 360.;
+    }
+    return lon;
+}
 
 
 struct Area : protected std::array<double, 4> {
@@ -107,6 +118,21 @@ struct Area : protected std::array<double, 4> {
         return N() == other.N() && W() == other.W() && S() == other.S() && E() == other.E();
     }
 
+    bool in(const Area& other) const {
+        if (N() > other.N() || S() < other.S()) {
+            return false;
+        }
+        if (other.isPeriodicWestEast()) {
+            return true;
+        }
+        if (isPeriodicWestEast()) {
+            return false;
+        }
+
+        const auto other_W = normalise_longitude(other.W(), W());
+        return W() >= other_W && E() <= normalise_longitude(other.E(), other_W);
+    }
+
     bool includesNorthPole() const { return N() == 90.; }
     bool includesSouthPole() const { return S() == -90.; }
     bool isPeriodicWestEast() const { return E() == W() + 360.; }
@@ -116,6 +142,10 @@ struct Area : protected std::array<double, 4> {
     double W() const { return operator[](1); }
     double S() const { return operator[](2); }
     double E() const { return operator[](3); }
+
+    friend std::ostream& operator<<(std::ostream& out, const Area& a) {
+        return out << a.N() << '/' << a.W() << '/' << a.S() << '/' << a.E();
+    }
 };
 
 
@@ -243,26 +273,23 @@ int main(int argc, const char* argv[]) {
             Grid::build(options["input-grid"].as<std::string>(), {options["input-area"].as<std::string>()}));
         std::unique_ptr<Grid> Go(
             Grid::build(options["output-grid"].as<std::string>(), {options["output-area"].as<std::string>()}));
+        assert(Go->area().in(Gi->area()));
 
 
-        // Grid-box latitude edges (j-direction midpoints)
+        // Grid-box latitude edges (j-direction midpoints, reverse sorted as latitudes decrease)
         std::vector<midpoint_t> Mj(Gi->Nj() + 1 + Go->Nj() + 1);
+        {
+            auto it = Mj.begin();
+            fill_midpoints_n(it, Gi->Nj(), Gi->firstXj(), Gi->lastXj(), Gi->area().N(), Gi->area().S(), 0, true);
+            fill_midpoints_n(it, Go->Nj(), Go->firstXj(), Go->lastXj(), Go->area().N(), Go->area().S(), 1, true);
+            assert(it == Mj.end());
+        }
 
-        auto it = Mj.begin();
-        fill_midpoints_n(it, Gi->Nj(), Gi->firstXj(), Gi->lastXj(), Gi->area().N(), Gi->area().S(), 0, true);
-        fill_midpoints_n(it, Go->Nj(), Go->firstXj(), Go->lastXj(), Go->area().N(), Go->area().S(), 1, true);
-        assert(it == Mj.end());
-
-        print(Mj);
-        std::cout << "---" << std::endl;
-
-        // latitudes: reverse sort
         std::inplace_merge(
             Mj.begin(), Mj.begin() + Gi->Nj() + 1, Mj.end(),
             [](const midpoint_t& a, const midpoint_t& b) { return a.x > b.x || (a.x == b.x && a.i < b.i); });
 
         print(Mj);
-        std::cout << "---" << std::endl;
     }
     catch (const cxxopts::exceptions::exception& e) {
         std::cout << "error parsing options: " << e.what() << std::endl;
